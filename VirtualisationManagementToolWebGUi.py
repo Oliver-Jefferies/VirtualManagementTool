@@ -5,6 +5,9 @@ import sys
 import time
 from threading import Thread
 
+# Global dictionary to store previous CPU stats
+previous_cpu_stats = {}
+
 app = Flask(__name__)
 
 @app.route("/")
@@ -106,55 +109,71 @@ def stop_vm_route():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-# Route to get VM stats
-@app.route('/vm_stats/<vm_name>', methods=['GET'])
-def get_vm_stats_route(vm_name):
+
+
+
+@app.route('/vm_stats/<string:vm_name>', methods=['GET'])
+def get_vm_stats(vm_name):
     try:
+        conn = connect_to_hypervisor()
         domain = conn.lookupByName(vm_name)
+
         if not domain.isActive():
-            return jsonify({"status": "info", "message": f"VM {vm_name} is not running."})
+            return jsonify({"status": "error", "message": f"VM {vm_name} is not running"}), 400
 
-        # CPU stats
+        # Fetch CPU stats
         cpu_stats = domain.getCPUStats(True)
-        cpu_time = cpu_stats[0]['cpu_time'] / 1e9  # Convert to seconds
+        cpu_time = cpu_stats[0]['cpu_time'] / 1e9  # Convert nanoseconds to seconds
 
-        # Memory stats
+        # Calculate CPU load
+        now = time.time()
+        if vm_name in previous_cpu_stats:
+            prev_time, prev_cpu_time = previous_cpu_stats[vm_name]
+            interval = now - prev_time
+            cpu_load = ((cpu_time - prev_cpu_time) / interval) * 100
+        else:
+            # First-time calculation
+            cpu_load = 0.0
+
+        # Update previous stats
+        previous_cpu_stats[vm_name] = (now, cpu_time)
+
+        # Fetch memory stats
         mem_stats = domain.memoryStats()
         memory_used = mem_stats.get('rss', 0) / 1024  # Convert to MB
 
-        stats = {
-            "vm_name": vm_name,
-            "cpu_time": f"{cpu_time:.2f} seconds",
-            "memory_used": f"{memory_used:.2f} MB"
-        }
-
-        return jsonify({"status": "success", "stats": stats})
+        return jsonify({
+            "status": "success",
+            "stats": {
+                "vm_name": vm_name,
+                "cpu_load": round(cpu_load, 2),
+                "memory_used": round(memory_used, 2),
+            }
+        })
 
     except libvirt.libvirtError as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+
 # Performance monitoring thread
-def monitor_vms():
-    while True:
-        # Example VMs to monitor
-        vm_names = ["UbuntuBaseVM"]
-        for vm_name in vm_names:
-            try:
-                domain = conn.lookupByName(vm_name)
-                if domain.isActive():
-                    print(f"VM {vm_name} is running.")
-                else:
-                    print(f"VM {vm_name} is not running.")
-            except libvirt.libvirtError:
-                print(f"VM {vm_name} not found.")
-        time.sleep(10)  # Monitor every 10 seconds
+#def monitor_vms():
+#    while True:
+#        # Example VMs to monitor
+#        vm_names = ["UbuntuBaseVM"]
+#        for vm_name in vm_names:
+#            try:
+#                domain = conn.lookupByName(vm_name)
+#                if domain.isActive():
+#                    print(f"VM {vm_name} is running.")
+#                else:
+#                    print(f"VM {vm_name} is not running.")
+#            except libvirt.libvirtError:
+#                print(f"VM {vm_name} not found.")
+#        time.sleep(10)  # Monitor every 10 seconds
 
 
 if __name__ == "__main__":
-    # Start the monitoring thread
-    monitor_thread = Thread(target=monitor_vms, daemon=True)
-    monitor_thread.start()
 
     # Run the Flask app
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, port=5000)
