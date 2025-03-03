@@ -1,39 +1,73 @@
-document.getElementById("startVmForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const vmName = document.getElementById("startVmName").value;
+function fetchVMList() {
+    fetch('/list_vms')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === "success") {
+                const vmListContainer = document.getElementById("vm-list");
+                vmListContainer.innerHTML = ""; // Clear existing list
 
-    try {
-        const response = await fetch(`/start_vm/${vmName}`, { method: "POST" });
+                data.vms.forEach(vm => {
+                    const row = document.createElement("tr");
+                    row.innerHTML = `<td>${vm.name}</td><td>${vm.status === "on" ? "🟢 On" : "🔴 Off"}</td>`;
+                    vmListContainer.appendChild(row);
+                });
+            }
+        })
+        .catch(error => console.error("Error fetching VM list:", error));
+}
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
-        }
+// Fetch VM list on page load
+document.addEventListener("DOMContentLoaded", fetchVMList);
 
-        const data = await response.json();
-        alert(data.message);
-    } catch (error) {
-        console.error("Error starting VM:", error);
-        alert("Failed to start VM. See console for details.");
+
+document.getElementById("startVmForm").addEventListener("submit", function (event) {
+    event.preventDefault(); // Prevent page reload
+
+    const vmName = document.getElementById("startVmName").value.trim();
+    if (!vmName) {
+        alert("Please enter a VM name.");
+        return;
     }
+
+    fetch('/start_vm', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ vm_name: vmName }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        alert(data.message); // Show success/error message
+        fetchVMList(); // Refresh VM list (if you added a function for this)
+    })
+    .catch(error => console.error("Error starting VM:", error));
 });
 
-document.getElementById("stopVmForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const vmName = document.getElementById("stopVmName").value;
 
-    try {
-        const response = await fetch(`/stop_vm/${vmName}`, { method: "POST" });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
-        }
+document.getElementById("stopVmForm").addEventListener("submit", function (event) {
+    event.preventDefault(); // Prevent page reload
 
-        const data = await response.json();
-        alert(data.message);
-    } catch (error) {
-        console.error("Error stopping VM:", error);
-        alert("Failed to stop VM. See console for details.");
+    const vmName = document.getElementById("stopVmName").value.trim();
+    if (!vmName) {
+        alert("Please enter a VM name.");
+        return;
     }
+
+    fetch('/stop_vm', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ vm_name: vmName }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        alert(data.message); // Show success/error message
+        fetchVMList(); // Refresh VM list
+    })
+    .catch(error => console.error("Error stopping VM:", error));
 });
 
 document.addEventListener("DOMContentLoaded", () => {

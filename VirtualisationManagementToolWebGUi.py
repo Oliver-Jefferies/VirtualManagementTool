@@ -23,6 +23,21 @@ def connect_to_hypervisor():
 
 conn = connect_to_hypervisor()  # Establish connection globally
 
+@app.route('/list_vms', methods=['GET'])
+def list_vms():
+    try:
+        vms = []
+        for domain_id in conn.listDomainsID():  # Get running VMs
+            domain = conn.lookupByID(domain_id)
+            vms.append({"name": domain.name(), "status": "on"})
+
+        for name in conn.listDefinedDomains():  # Get stopped VMs
+            vms.append({"name": name, "status": "off"})
+
+        return jsonify({"status": "success", "vms": vms})
+    except libvirt.libvirtError as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 # Route to create a VM
 @app.route('/create_vm', methods=['POST'])
@@ -76,8 +91,7 @@ def create_vm_route():
             return jsonify({"status": "error", "message": f"Failed to create VM {vm_name}."}), 500
         return jsonify({"status": "success", "message": f"VM {vm_name} created successfully."})
 
-
-# Route to start a VM
+#Start VM Route
 @app.route('/start_vm', methods=['POST'])
 def start_vm_route():
     data = request.json
@@ -85,12 +99,16 @@ def start_vm_route():
 
     try:
         domain = conn.lookupByName(vm_name)
+
         if domain.isActive():
             return jsonify({"status": "info", "message": f"VM {vm_name} is already running."})
+
+        # Start the VM
         domain.create()
         return jsonify({"status": "success", "message": f"VM {vm_name} started successfully."})
+
     except libvirt.libvirtError as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": f"Failed to start VM: {str(e)}"}), 500
 
 
 # Route to stop a VM
