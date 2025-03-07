@@ -4,7 +4,7 @@ function fetchVMList() {
         .then(data => {
             if (data.status === "success") {
                 const vmListContainer = document.getElementById("vm-list");
-                vmListContainer.innerHTML = ""; // Clear existing list
+                vmListContainer.innerHTML = ""; // Clear old list
 
                 data.vms.forEach(vm => {
                     const row = document.createElement("tr");
@@ -16,18 +16,50 @@ function fetchVMList() {
         .catch(error => console.error("Error fetching VM list:", error));
 }
 
-// Fetch VM list on page load
+// Refresh VM list every 5 seconds
+setInterval(fetchVMList, 5000);
+
+// Fetch immediately when the page loads
 document.addEventListener("DOMContentLoaded", fetchVMList);
 
+document.getElementById("createVmForm").addEventListener("submit", function (event) {
+    event.preventDefault(); // Prevent page reload
+
+    const vmName = document.getElementById("createVmName").value;
+    const baseDisk = document.getElementById("createVmDisk").value;
+    const isoImage = document.getElementById("createVmIso").value;
+    const memoryAllocate = document.getElementById("createVmMemory").value;
+    const coresAllocate = document.getElementById("createVmCores").value;
+
+    fetch('/create_vm', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            vm_name: vmName,
+            base_disk: baseDisk,
+            iso_image: isoImage,
+            memory_allocation: memoryAllocate,
+            core_allocation: coresAllocate,
+        }),
+    })
+    .then(response => response.json())
+    .then(text => {
+        console.log("Raw response:", text); // Log response for debugging
+        return JSON.parse(text); // Now parse as JSON
+    })
+    .then(data => {
+        alert(data.message);
+        fetchVMList(); // Update the VM list
+    })
+    .catch(error => console.error("Error creating VM:", error));
+});
 
 document.getElementById("startVmForm").addEventListener("submit", function (event) {
     event.preventDefault(); // Prevent page reload
 
     const vmName = document.getElementById("startVmName").value.trim();
-    if (!vmName) {
-        alert("Please enter a VM name.");
-        return;
-    }
 
     fetch('/start_vm', {
         method: 'POST',

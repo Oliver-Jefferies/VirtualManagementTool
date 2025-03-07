@@ -46,16 +46,20 @@ def create_vm_route():
     vm_name = data['vm_name']
     base_disk = data['base_disk']
     iso_image = data['iso_image']
+    memory_allocation = data.get('memory_allocation', 1024)  # Default to 1GB if not provided
+    core_allocation = data.get('core_allocation', 2)
+
 
     vm_disk = f"/home/oliver/VMs/{vm_name}.qcow2"
     os.system(f"qemu-img convert -f qcow2 -O qcow2 {base_disk} {vm_disk}")
 
+    memory_kib = memory_allocation * 1024  # Convert MB to KiB
     # Define the VM XML dynamically
     xml_config = f"""
     <domain type='kvm'>
       <name>{vm_name}</name>
-      <memory unit='KiB'>1048576</memory>
-      <vcpu placement='static'>1</vcpu>
+      <memory unit='KiB'>{memory_kib}</memory>
+      <vcpu placement='static'>{core_allocation}</vcpu>
       <os>
         <type arch='x86_64' machine='pc'>hvm</type>
         <boot dev='hd'/>
