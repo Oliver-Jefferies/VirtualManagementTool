@@ -1,3 +1,5 @@
+import threading
+
 from flask import Flask, request, jsonify, render_template
 import libvirt
 import os
@@ -39,27 +41,42 @@ def list_vms():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-# Route to create a VM
-@app.route('/create_vm', methods=['POST'])
-def create_vm_route():
-    data = request.json
-    vm_name = data['vm_name']
-    base_disk = data['base_disk']
-    iso_image = data['iso_image']
-    memory_allocation = data.get('memory_allocation', 1024)  # Default to 1GB if not provided
-    core_allocation = data.get('core_allocation', 2)
+def generate_mac_address():
+    """Generate a random MAC address for the VM."""
+    return "52:54:00:{:02x}:{:02x}:{:02x}".format(
+        os.urandom(1)[0], os.urandom(1)[0], os.urandom(1)[0]
+    )
 
+def create_vm(vm_data):
+    """Create a single VM using the provided data."""
+    vm_name = vm_data.get('vm_name')
+    base_disk = vm_data.get('base_disk')
+    iso_image = vm_data.get('iso_image')
+    memory_mb = vm_data.get('memory', 1024)  # Default 1GB
+    cpus = vm_data.get('cpus', 1)  # Default 1 CPU
+    mac_address = vm_data.get('mac_address', generate_mac_address())
 
-    vm_disk = f"/home/oliver/VMs/{vm_name}.qcow2"
-    os.system(f"qemu-img convert -f qcow2 -O qcow2 {base_disk} {vm_disk}")
+    if not vm_name or not base_disk or not iso_image:
+        return {"vm_name": vm_name, "status": "error", "message": "Missing required parameters"}
 
-    memory_kib = memory_allocation * 1024  # Convert MB to KiB
+    base_disk = os.path.abspath(base_disk)
+    vm_disk = os.path.join("/home/oliver/VMs", f"{vm_name}.qcow2")
+
+    if not os.path.exists(base_disk):
+        return {"vm_name": vm_name, "status": "error", "message": f"Base disk {base_disk} not found"}
+
+    # Create a new VM disk
+    os.system(f"qemu-img create -f qcow2 {vm_disk} 10G")
+
+    # Convert memory to KiB
+    memory_kib = memory_mb * 1024
+
     # Define the VM XML dynamically
     xml_config = f"""
     <domain type='kvm'>
       <name>{vm_name}</name>
       <memory unit='KiB'>{memory_kib}</memory>
-      <vcpu placement='static'>{core_allocation}</vcpu>
+      <vcpu placement='static'>{cpus}</vcpu>
       <os>
         <type arch='x86_64' machine='pc'>hvm</type>
         <boot dev='hd'/>
@@ -75,10 +92,9 @@ def create_vm_route():
           <driver name='qemu' type='qcow2'/>
           <source file='{vm_disk}'/>
           <target dev='vda' bus='virtio'/>
-          <address type='pci' domain='0x0000' bus='0x00' slot='0x04' function='0x0'/>
         </disk>
         <interface type='network'>
-          <mac address='52:54:00:6b:29:55'/>
+          <mac address='{mac_address}'/>
           <source network='default'/>
           <model type='virtio'/>
         </interface>
@@ -88,47 +104,151 @@ def create_vm_route():
 
     try:
         domain = conn.lookupByName(vm_name)
-        return jsonify({"status": "error", "message": f"VM {vm_name} already exists."}), 400
+        return {"vm_name": vm_name, "status": "error", "message": "VM already exists"}
     except libvirt.libvirtError:
         domain = conn.defineXML(xml_config)
         if domain is None:
-            return jsonify({"status": "error", "message": f"Failed to create VM {vm_name}."}), 500
-        return jsonify({"status": "success", "message": f"VM {vm_name} created successfully."})
+            return {"vm_name": vm_name, "status": "error", "message": "Failed to create VM"}
+        return {"vm_name": vm_name, "status": "success", "message": "VM created successfully"}
+
+        # **Start the VM immediately after creation**
+        try:
+            domain.create()
+            return {"vm_name": vm_name, "status": "success", "message": "VM created and started successfully"}
+        except libvirt.libvirtError as e:
+            return {"vm_name": vm_name, "status": "error", "message": f"VM created but failed to start: {str(e)}"}
+
+
+@app.route('/create_vm', methods=['POST'])
+def create_vm_route():
+    """
+    API Route to create one or multiple VMs.
+    Accepts either a single VM dictionary or a list of VM dictionaries.
+    """
+    data = request.json
+
+    if isinstance(data, list):  # If multiple VMs
+        results = []
+        threads = []
+
+        for vm_data in data:
+            thread = threading.Thread(target=lambda d=vm_data: results.append(create_vm(d)))
+            thread.start()
+            threads.append(thread)
+
+        for thread in threads:
+            thread.join()
+
+        return jsonify({"status": "success", "results": results})
+
+    elif isinstance(data, dict):  # If single VM
+        result = create_vm(data)
+        return jsonify(result)
+
+    else:
+        return jsonify({"status": "error", "message": "Invalid JSON format"}), 400
+
 
 #Start VM Route
 @app.route('/start_vm', methods=['POST'])
-def start_vm_route():
+@app.route('/start_vm', methods=['POST'])
+def start_vm():
+    """
+    Start a single VM or multiple VMs based on a base name.
+    """
     data = request.json
-    vm_name = data['vm_name']
+    base_name = data.get('base_name')
+    single_vm_name = data.get('vm_name')
+    is_bulk = data.get('bulk', False)  # Determines if bulk mode is enabled
 
     try:
-        domain = conn.lookupByName(vm_name)
+        started_vms = []
+        failed_vms = []
 
-        if domain.isActive():
-            return jsonify({"status": "info", "message": f"VM {vm_name} is already running."})
+        if is_bulk and base_name:  # Bulk start
+            all_vms = [domain.name() for domain in conn.listAllDomains()]
+            matching_vms = [vm for vm in all_vms if vm.startswith(base_name)]
 
-        # Start the VM
-        domain.create()
-        return jsonify({"status": "success", "message": f"VM {vm_name} started successfully."})
+            if not matching_vms:
+                return jsonify({"status": "error", "message": f"No VMs found with base name {base_name}"}), 404
+
+            for vm_name in matching_vms:
+                try:
+                    domain = conn.lookupByName(vm_name)
+                    if not domain.isActive():
+                        domain.create()
+                        started_vms.append(vm_name)
+                    else:
+                        failed_vms.append({"vm_name": vm_name, "message": "Already running"})
+                except libvirt.libvirtError as e:
+                    failed_vms.append({"vm_name": vm_name, "message": str(e)})
+
+            return jsonify({"status": "success", "started_vms": started_vms, "failed_vms": failed_vms})
+
+        elif single_vm_name:  # Single start
+            domain = conn.lookupByName(single_vm_name)
+            if domain.isActive():
+                return jsonify({"status": "error", "message": f"VM {single_vm_name} is already running"}), 400
+
+            domain.create()
+            return jsonify({"status": "success", "message": f"VM {single_vm_name} started successfully"})
+
+        else:
+            return jsonify({"status": "error", "message": "Invalid request"}), 400
 
     except libvirt.libvirtError as e:
-        return jsonify({"status": "error", "message": f"Failed to start VM: {str(e)}"}), 500
+        return jsonify({"status": "error", "message": f"Failed to start VM(s): {str(e)}"}), 500
+
 
 
 # Route to stop a VM
 @app.route('/stop_vm', methods=['POST'])
-def stop_vm_route():
+def stop_vm():
+    """
+    Stop a single VM or multiple VMs based on a base name.
+    """
     data = request.json
-    vm_name = data['vm_name']
+    base_name = data.get('base_name')
+    single_vm_name = data.get('vm_name')
+    is_bulk = data.get('bulk', False)  # Determines if bulk mode is enabled
 
     try:
-        domain = conn.lookupByName(vm_name)
-        if domain.isActive():
+        stopped_vms = []
+        failed_vms = []
+
+        if is_bulk and base_name:  # Bulk stop
+            all_vms = [domain.name() for domain in conn.listAllDomains()]
+            matching_vms = [vm for vm in all_vms if vm.startswith(base_name)]
+
+            if not matching_vms:
+                return jsonify({"status": "error", "message": f"No VMs found with base name {base_name}"}), 404
+
+            for vm_name in matching_vms:
+                try:
+                    domain = conn.lookupByName(vm_name)
+                    if domain.isActive():
+                        domain.destroy()
+                        stopped_vms.append(vm_name)
+                    else:
+                        failed_vms.append({"vm_name": vm_name, "message": "Already stopped"})
+                except libvirt.libvirtError as e:
+                    failed_vms.append({"vm_name": vm_name, "message": str(e)})
+
+            return jsonify({"status": "success", "stopped_vms": stopped_vms, "failed_vms": failed_vms})
+
+        elif single_vm_name:  # Single stop
+            domain = conn.lookupByName(single_vm_name)
+            if not domain.isActive():
+                return jsonify({"status": "error", "message": f"VM {single_vm_name} is already stopped"}), 400
+
             domain.destroy()
-            return jsonify({"status": "success", "message": f"VM {vm_name} stopped successfully."})
-        return jsonify({"status": "info", "message": f"VM {vm_name} is already stopped."})
+            return jsonify({"status": "success", "message": f"VM {single_vm_name} stopped successfully"})
+
+        else:
+            return jsonify({"status": "error", "message": "Invalid request"}), 400
+
     except libvirt.libvirtError as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": f"Failed to stop VM(s): {str(e)}"}), 500
 
 
 

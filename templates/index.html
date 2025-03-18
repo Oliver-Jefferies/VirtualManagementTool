@@ -62,25 +62,33 @@
       <input type="text" id="createVmName" placeholder="VM Name" required>
       <input type="text" id="createVmDisk" placeholder="Base Disk Path" required>
       <input type="text" id="createVmIso" placeholder="ISO Image Path" required>
-      <input type="text" id="createVmMemory" placeholder="Allocate Memory" required>
-      <input type="text" id="createVmCores" placeholder="Allocate Cores" required>
+      <input type="number" id="createVmMemory" placeholder="Allocate Memory" required>
+      <input type="number" id="createVmCores" placeholder="Allocate Cores" required>
+      <input type="number" id="numVMs" min="1" max="10" placeholder="1 - 10" required>
 
       <button type="submit">Create VM</button>
     </form>
 
     <!-- Form to Start VM -->
-    <h2>Start VM</h2>
+    <h2>Start VM(s)</h2>
     <form id="startVmForm">
-      <input type="text" id="startVmName" placeholder="VM Name" required>
+      <input type="text" id="startVmName" placeholder="VM Name or Base Name" required>
+      <label>
+        <input type="checkbox" id="startBulkCheckbox"> Start all matching VMs
+      </label>
       <button type="submit">Start VM</button>
     </form>
 
-    <!-- Form to Stop VM -->
-    <h2>Stop VM</h2>
+
+    <h2>Stop VM(s)</h2>
     <form id="stopVmForm">
-      <input type="text" id="stopVmName" placeholder="VM Name" required>
+      <input type="text" id="stopVmName" placeholder="VM Name or Base Name" required>
+      <label>
+        <input type="checkbox" id="stopBulkCheckbox"> Stop all matching VMs
+      </label>
       <button type="submit">Stop VM</button>
     </form>
+
 
     <!-- Form to Get VM Stats -->
     <h2>Get VM Stats</h2>

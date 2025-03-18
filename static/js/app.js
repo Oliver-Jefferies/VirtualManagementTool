@@ -22,84 +22,129 @@ setInterval(fetchVMList, 5000);
 // Fetch immediately when the page loads
 document.addEventListener("DOMContentLoaded", fetchVMList);
 
-document.getElementById("createVmForm").addEventListener("submit", function (event) {
-    event.preventDefault(); // Prevent page reload
+document.addEventListener("DOMContentLoaded", function () {
+    console.log("DOM fully loaded and parsed");
 
-    const vmName = document.getElementById("createVmName").value;
-    const baseDisk = document.getElementById("createVmDisk").value;
-    const isoImage = document.getElementById("createVmIso").value;
-    const memoryAllocate = document.getElementById("createVmMemory").value;
-    const coresAllocate = document.getElementById("createVmCores").value;
+    // Check if the form exists before adding event listeners
+    const createVmForm = document.getElementById("createVmForm");
+    if (!createVmForm) {
+        console.error("Error: createVmForm not found!");
+        return;
+    }
 
-    fetch('/create_vm', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            vm_name: vmName,
-            base_disk: baseDisk,
-            iso_image: isoImage,
-            memory_allocation: memoryAllocate,
-            core_allocation: coresAllocate,
-        }),
-    })
-    .then(response => response.json())
-    .then(text => {
-        console.log("Raw response:", text); // Log response for debugging
-        return JSON.parse(text); // Now parse as JSON
-    })
-    .then(data => {
-        alert(data.message);
-        fetchVMList(); // Update the VM list
-    })
-    .catch(error => console.error("Error creating VM:", error));
+    createVmForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+
+        const vmName = document.getElementById("createVmName").value.trim();
+        const baseDisk = document.getElementById("createVmDisk").value.trim();
+        const isoImage = document.getElementById("createVmIso").value.trim();
+        const memory = parseInt(document.getElementById("createVmMemory").value);
+        const cpus = parseInt(document.getElementById("createVmCores").value);
+        const numVMs = parseInt(document.getElementById("numVMs").value) || 1;
+
+        if (!vmName || !baseDisk || !isoImage || memory <= 0 || cpus <= 0 || numVMs <= 0) {
+            alert("Please fill all fields correctly.");
+            return;
+        }
+
+        let vmList = [];
+        for (let i = 1; i <= numVMs; i++) {
+            const generatedName = `${vmName}${i}`;
+            const macAddress = `52:54:00:${Math.floor(Math.random() * 256).toString(16)}:${Math.floor(Math.random() * 256).toString(16)}:${Math.floor(Math.random() * 256).toString(16)}`;
+
+            vmList.push({
+                vm_name: generatedName,
+                base_disk: baseDisk,
+                iso_image: isoImage,
+                memory: memory,
+                cpus: cpus,
+                mac_address: macAddress
+            });
+        }
+
+        fetch('/create_vm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(numVMs === 1 ? vmList[0] : vmList),
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log("VM Creation Response:", data);
+            alert("VMs created successfully!");
+            fetchVMList();
+        })
+        .catch(error => console.error("Error creating VMs:", error));
+    });
+
 });
 
 document.getElementById("startVmForm").addEventListener("submit", function (event) {
     event.preventDefault(); // Prevent page reload
 
-    const vmName = document.getElementById("startVmName").value.trim();
+     const vmName = document.getElementById("startVmName").value.trim();
+    const isBulk = document.getElementById("startBulkCheckbox").checked;
+
+    if (!vmName) {
+        alert("Please enter a VM name or base name.");
+        return;
+    }
+
+    const requestData = isBulk
+        ? { base_name: vmName, bulk: true }
+        : { vm_name: vmName, bulk: false };
 
     fetch('/start_vm', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ vm_name: vmName }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData),
     })
     .then(response => response.json())
     .then(data => {
-        alert(data.message); // Show success/error message
-        fetchVMList(); // Refresh VM list (if you added a function for this)
+        if (data.status === "success") {
+            let message = isBulk
+                ? `Started VMs: ${data.started_vms.join(", ")}`
+                : data.message;
+            alert(message);
+        } else {
+            alert(`Error: ${data.message}`);
+        }
     })
-    .catch(error => console.error("Error starting VM:", error));
+    .catch(error => console.error("Error starting VM(s):", error));
 });
-
 
 
 document.getElementById("stopVmForm").addEventListener("submit", function (event) {
     event.preventDefault(); // Prevent page reload
 
     const vmName = document.getElementById("stopVmName").value.trim();
+    const isBulk = document.getElementById("stopBulkCheckbox").checked;
+
     if (!vmName) {
-        alert("Please enter a VM name.");
+        alert("Please enter a VM name or base name.");
         return;
     }
 
+    const requestData = isBulk
+        ? { base_name: vmName, bulk: true }
+        : { vm_name: vmName, bulk: false };
+
     fetch('/stop_vm', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ vm_name: vmName }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData),
     })
     .then(response => response.json())
     .then(data => {
-        alert(data.message); // Show success/error message
-        fetchVMList(); // Refresh VM list
+        if (data.status === "success") {
+            let message = isBulk
+                ? `Stopped VMs: ${data.stopped_vms.join(", ")}`
+                : data.message;
+            alert(message);
+        } else {
+            alert(`Error: ${data.message}`);
+        }
     })
-    .catch(error => console.error("Error stopping VM:", error));
+    .catch(error => console.error("Error stopping VM(s):", error));
 });
 
 document.addEventListener("DOMContentLoaded", () => {
