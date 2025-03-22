@@ -78,6 +78,39 @@ document.addEventListener("DOMContentLoaded", function () {
 
 });
 
+function deleteVM() {
+    const vmName = document.getElementById("deleteVmName").value.trim();
+    const isBulk = document.getElementById("deleteBulkCheckbox").checked;
+
+    if (!vmName) {
+        alert("Please enter a VM name or base name.");
+        return;
+    }
+
+    const requestData = isBulk
+        ? { base_name: vmName, bulk: true }
+        : { vm_name: vmName, bulk: false };
+
+    fetch('/delete_vm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData),
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === "success") {
+            let message = isBulk
+                ? `Deleted VMs: ${data.deleted_vms.join(", ")}`
+                : data.message;
+            alert(message);
+            fetchVMList(); // Refresh VM list
+        } else {
+            alert(`Error: ${data.message}`);
+        }
+    })
+    .catch(error => console.error("Error deleting VM(s):", error));
+}
+
 document.getElementById("startVmForm").addEventListener("submit", function (event) {
     event.preventDefault(); // Prevent page reload
 

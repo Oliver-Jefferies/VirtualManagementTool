@@ -109,14 +109,13 @@ def create_vm(vm_data):
         domain = conn.defineXML(xml_config)
         if domain is None:
             return {"vm_name": vm_name, "status": "error", "message": "Failed to create VM"}
-        return {"vm_name": vm_name, "status": "success", "message": "VM created successfully"}
 
         # **Start the VM immediately after creation**
-        try:
-            domain.create()
-            return {"vm_name": vm_name, "status": "success", "message": "VM created and started successfully"}
-        except libvirt.libvirtError as e:
-            return {"vm_name": vm_name, "status": "error", "message": f"VM created but failed to start: {str(e)}"}
+    try:
+        domain.create()
+        return {"vm_name": vm_name, "status": "success", "message": "VM created and started successfully"}
+    except libvirt.libvirtError as e:
+        return {"vm_name": vm_name, "status": "error", "message": f"VM created but failed to start: {str(e)}"}
 
 
 @app.route('/create_vm', methods=['POST'])
@@ -150,7 +149,6 @@ def create_vm_route():
 
 
 #Start VM Route
-@app.route('/start_vm', methods=['POST'])
 @app.route('/start_vm', methods=['POST'])
 def start_vm():
     """
@@ -199,6 +197,65 @@ def start_vm():
     except libvirt.libvirtError as e:
         return jsonify({"status": "error", "message": f"Failed to start VM(s): {str(e)}"}), 500
 
+@app.route('/delete_vm', methods=['POST'])
+def delete_vm():
+    """
+    Delete a single VM or multiple VMs based on a base name.
+    This will also delete the VM disk file.
+    """
+    data = request.json
+    base_name = data.get('base_name')
+    single_vm_name = data.get('vm_name')
+    is_bulk = data.get('bulk', False)  # Determines if bulk mode is enabled
+
+    try:
+        deleted_vms = []
+        failed_vms = []
+
+        if is_bulk and base_name:  # Bulk delete
+            all_vms = [domain.name() for domain in conn.listAllDomains()]
+            matching_vms = [vm for vm in all_vms if vm.startswith(base_name)]
+
+            if not matching_vms:
+                return jsonify({"status": "error", "message": f"No VMs found with base name {base_name}"}), 404
+
+            for vm_name in matching_vms:
+                try:
+                    domain = conn.lookupByName(vm_name)
+                    if domain.isActive():
+                        domain.destroy()  # Ensure VM is stopped before deletion
+                    domain.undefine()  # Remove from libvirt
+                    vm_disk = os.path.join("/home/oliver/VMs", f"{vm_name}.qcow2")
+
+                    if os.path.exists(vm_disk):  # Delete VM disk
+                        os.remove(vm_disk)
+
+                    deleted_vms.append(vm_name)
+                except libvirt.libvirtError as e:
+                    failed_vms.append({"vm_name": vm_name, "message": str(e)})
+
+            return jsonify({"status": "success", "deleted_vms": deleted_vms, "failed_vms": failed_vms})
+
+        elif single_vm_name:  # Single delete
+            try:
+                domain = conn.lookupByName(single_vm_name)
+                if domain.isActive():
+                    domain.destroy()  # Stop VM before deletion
+                domain.undefine()  # Remove from libvirt
+                vm_disk = os.path.join("/home/oliver/VMs", f"{single_vm_name}.qcow2")
+
+                if os.path.exists(vm_disk):  # Delete VM disk
+                    os.remove(vm_disk)
+
+                return jsonify({"status": "success", "message": f"VM {single_vm_name} deleted successfully"})
+            except libvirt.libvirtError as e:
+                return jsonify({"status": "error", "message": f"Failed to delete VM {single_vm_name}: {str(e)}"}), 500
+
+        else:
+            return jsonify({"status": "error", "message": "Invalid request"}), 400
+
+    except libvirt.libvirtError as e:
+        return jsonify({"status": "error", "message": f"Failed to delete VM(s): {str(e)}"}), 500
 
 
 # Route to stop a VM

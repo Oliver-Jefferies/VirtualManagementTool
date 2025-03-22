@@ -69,6 +69,15 @@
       <button type="submit">Create VM</button>
     </form>
 
+    <h2>Delete VM(s)</h2>
+    <form id="deleteVmForm">
+      <input type="text" id="deleteVmName" placeholder="VM Name or Base Name" required>
+      <label>
+        <input type="checkbox" id="deleteBulkCheckbox"> Delete all matching VMs
+      </label>
+      <button type="button" onclick="deleteVM()">Delete VM(s)</button>
+    </form>
+
     <!-- Form to Start VM -->
     <h2>Start VM(s)</h2>
     <form id="startVmForm">
