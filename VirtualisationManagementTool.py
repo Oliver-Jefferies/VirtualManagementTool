@@ -6,6 +6,8 @@ import os
 import sys
 import time
 from threading import Thread
+from xml.etree.ElementTree import fromstring
+import xml
 
 # Global dictionary to store previous CPU stats
 previous_cpu_stats = {}
@@ -320,6 +322,14 @@ def get_vm_stats(vm_name):
         if not domain.isActive():
             return jsonify({"status": "error", "message": f"VM {vm_name} is not running"}), 400
 
+        #Fetch Interface
+        iface = "vnet0"
+
+        # Interface stats
+        net_stats = domain.interfaceStats(iface)
+        print(net_stats)
+        print(net_stats[0], net_stats[4])
+
         # Fetch CPU stats
         cpu_stats = domain.getCPUStats(True)
         cpu_time = cpu_stats[0]['cpu_time'] / 1e9  # Convert nanoseconds to seconds
@@ -340,6 +350,8 @@ def get_vm_stats(vm_name):
         # Fetch memory stats
         mem_stats = domain.memoryStats()
         memory_used = mem_stats.get('rss', 0) / 1024  # Convert to MB
+        memory_max_stats = domain.maxMemory()
+        memory_max = memory_max_stats / 1024
 
         return jsonify({
             "status": "success",
@@ -347,29 +359,14 @@ def get_vm_stats(vm_name):
                 "vm_name": vm_name,
                 "cpu_load": round(cpu_load, 2),
                 "memory_used": round(memory_used, 2),
+                "memory_max": memory_max,
+                "net_stats_in": net_stats[0] * 0.000001 / interval,
+                "net_stats_out": net_stats[4] * 0.000001 / interval,
             }
         })
 
     except libvirt.libvirtError as e:
         return jsonify({"status": "error", "message": str(e)}), 500
-
-
-
-# Performance monitoring thread
-#def monitor_vms():
-#    while True:
-#        # Example VMs to monitor
-#        vm_names = ["UbuntuBaseVM"]
-#        for vm_name in vm_names:
-#            try:
-#                domain = conn.lookupByName(vm_name)
-#                if domain.isActive():
-#                    print(f"VM {vm_name} is running.")
-#                else:
-#                    print(f"VM {vm_name} is not running.")
-#            except libvirt.libvirtError:
-#                print(f"VM {vm_name} not found.")
-#        time.sleep(10)  # Monitor every 10 seconds
 
 
 if __name__ == "__main__":

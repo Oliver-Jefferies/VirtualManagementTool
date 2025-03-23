@@ -182,6 +182,11 @@ document.getElementById("stopVmForm").addEventListener("submit", function (event
 
 document.addEventListener("DOMContentLoaded", () => {
     const cpuChartCtx = document.getElementById("cpuUsageChart").getContext("2d");
+    const memChartCtx = document.getElementById("memUsageChart").getContext("2d");
+    const netChartCtx = document.getElementById("netUsageChart").getContext("2d");
+
+    let netUsageChart;
+    let memUsageChart;
     let cpuUsageChart;
     let updateInterval;
 
@@ -221,19 +226,123 @@ document.addEventListener("DOMContentLoaded", () => {
                 },
             },
         });
+
+
+        memUsageChart = new Chart(memChartCtx, {
+            type: "line",
+            data: {
+                labels: [], // Time intervals
+                datasets: [
+                    {
+                        label: "RAM Usage (MB)",
+                        data: [],
+                        backgroundColor: "rgba(75, 192, 192, 0.2)",
+                        borderColor: "rgba(75, 192, 192, 1)",
+                        borderWidth: 1,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: "Time",
+                        },
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: "Ram Usage (MB)",
+                        },
+                        beginAtZero: true,
+                        max: 100,
+                    },
+                },
+            },
+        });
+
+        netUsageChart = new Chart(netChartCtx, {
+            type: "line",
+            data: {
+                labels: [], // Time intervals
+                datasets: [
+                    {
+                        label: "Net Usage in",
+                        data: [],
+                        backgroundColor: "rgba(75, 192, 192, 0.2)",
+                        borderColor: "rgba(75, 192, 192, 1)",
+                        borderWidth: 1,
+                    },
+                    {
+                        label: "Net Usage out",
+                        data: [],
+                        backgroundColor: "rgba(20, 50, 40, 0.2)",
+                        borderColor: "rgba(75, 192, 192, 1)",
+                        borderWidth: 1,
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: "Time",
+                        },
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: "Net Usage (MB)",
+                        },
+                        beginAtZero: true,
+                        //max: 100,
+                    },
+                },
+            },
+        });
     }
 
     // Update the graph with new data
     function updateGraph(stats) {
         const currentTime = new Date().toLocaleTimeString();
         const cpuLoad = parseFloat(stats.cpu_load); // Extract CPU load percentage
+        const memLoad = parseFloat(stats.memory_used); // Extract Memory usage percentage
+
+        console.log(memLoad)
+
 
         if (isNaN(cpuLoad)) {
             console.error("Invalid CPU load value:", stats.cpu_load);
             return; // Prevent invalid data from being added
         }
 
-        // Add new data point
+
+        if (isNaN(memLoad)) {
+            console.error("Invalid Memory usage value:", stats.cpu_load);
+            return; // Prevent invalid data from being added
+        }
+        memUsageChart.options = {
+            scales: {
+                y: {
+                    max: stats.memory_max
+                }
+            }
+        }
+
+        // Net data point
+        netUsageChart.data.labels.push(currentTime);
+        netUsageChart.data.datasets[0].data.push(stats.net_stats_in);
+        netUsageChart.data.datasets[1].data.push(stats.net_stats_out)
+
+        // Mem new data point
+        memUsageChart.data.labels.push(currentTime);
+        memUsageChart.data.datasets[0].data.push(memLoad);
+
+        // Cpu new data point
         cpuUsageChart.data.labels.push(currentTime);
         cpuUsageChart.data.datasets[0].data.push(cpuLoad);
 
@@ -243,8 +352,22 @@ document.addEventListener("DOMContentLoaded", () => {
             cpuUsageChart.data.datasets[0].data.shift();
         }
 
+        if (memUsageChart.data.labels.length > 10) {
+            memUsageChart.data.labels.shift();
+            memUsageChart.data.datasets[0].data.shift();
+        }
+
+                // Limit the number of points on the graph
+        if (netUsageChart.data.labels.length > 10) {
+            netUsageChart.data.labels.shift();
+            netUsageChart.data.datasets[0].data.shift();
+            netUsageChart.data.datasets[1].data.shift();
+        }
+
         // Update the chart
         cpuUsageChart.update();
+        memUsageChart.update();
+        netUsageChart.update();
     }
 
     // Fetch VM stats and update the graph periodically
@@ -258,6 +381,8 @@ document.addEventListener("DOMContentLoaded", () => {
             if (data.status === "success" && data.stats) {
                 updateGraph(data.stats);
             }
+            console.log("Received VM Stats:", data);
+
         } catch (error) {
             console.error("Error fetching VM stats for live graph:", error);
         }
@@ -296,7 +421,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
-            const { cpu_load, memory_used, vm_name } = data.stats;
+            const { cpu_load, memory_used, vm_name, memory_max, net_stats_in, net_stats_out} = data.stats;
 
             // Display the VM stats
             document.getElementById("vmStatsDisplay").style.display = "block";
@@ -304,6 +429,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 VM Name: ${vm_name}
                 CPU Load: ${cpu_load}%
                 Memory Used: ${memory_used} MB
+                Memory Max: ${memory_max}
+                Net In: ${net_stats_in}
+                Net Out: ${net_stats_out}
             `;
 
             // Show the graph container and start live updates
